@@ -11,9 +11,8 @@ namespace HiSql
     /// </summary>
     public class ConnectionConfig
     {
-
         /// <summary>
-        /// 
+        ///
         /// </summary>
         private bool isShareThread = false;
 
@@ -23,13 +22,13 @@ namespace HiSql
 
         private string configUid = string.Empty;
 
-        private string _schema="";
+        private string _schema = "";
 
         private string _dbserver = "";
 
         private int _timeout = 3000;
 
-        private bool _ignorecase=true;
+        private bool _ignorecase = true;
 
         private bool _uppercase = false;
 
@@ -48,11 +47,11 @@ namespace HiSql
 
         private StringCase stringCase = StringCase.Default;
 
-
         /// <summary>
         /// 仅包含的表走从库 如果排除表也配置了那么优先包含表
         /// </summary>
         private List<string> _slaveonly = null;
+
         /// <summary>
         /// 除此之外的表都走从库 如果包含的表也配置了那么优先包含表
         /// </summary>
@@ -64,13 +63,20 @@ namespace HiSql
         /// <summary>
         /// 连接Key 用作标识唯一标识(由系统自动生民)
         /// </summary>
-        public string ConfigId { get { return configId; }set { configId = value; } }
-
+        public string ConfigId
+        {
+            get { return configId; }
+            set { configId = value; }
+        }
 
         /// <summary>
         /// 用户自定义的连接ID，用于用户自己标识该连接
         /// </summary>
-        public string ConfigUid { get { return configUid; }set { configUid = value; } }
+        public string ConfigUid
+        {
+            get { return configUid; }
+            set { configUid = value; }
+        }
 
         /// <summary>
         /// 数据库类型
@@ -90,20 +96,24 @@ namespace HiSql
         /// <summary>
         /// 是否启用表引用检测
         /// </summary>
-        public bool IsCheckTableRefData { get => _tabrefcheck; set => _tabrefcheck = value; }
+        public bool IsCheckTableRefData
+        {
+            get => _tabrefcheck;
+            set => _tabrefcheck = value;
+        }
 
         //数据忽略大小写
-        //public bool IgnoreCase { 
+        //public bool IgnoreCase {
         //    get {
-                
-        //        return _ignorecase; 
-            
+
+        //        return _ignorecase;
+
         //    }
         //    set {
-                
-        //        _ignorecase = value; 
-        //    } 
-        
+
+        //        _ignorecase = value;
+        //    }
+
         //}
 
         /// <summary>
@@ -139,22 +149,22 @@ namespace HiSql
         /// </summary>
         public string DbServer
         {
-            get{
-                if (string.IsNullOrEmpty(_dbserver)) {
+            get
+            {
+                if (string.IsNullOrEmpty(_dbserver))
+                {
                     _dbserver = "default";
                 }
                 return _dbserver;
-            
             }
-            set { 
-                    
+            set
+            {
                 _dbserver = value;
 
                 if (!HiSql.Tool.RegexMatch("^[\\w-]+$", _dbserver))
                 {
                     throw new Exception($"连接配置设置的[DbServer]:{_dbserver}命名不符合规范");
                 }
-            
             }
         }
 
@@ -169,9 +179,14 @@ namespace HiSql
         }
 
         /// <summary>
-        /// 数据库Schema 
+        /// 数据库Schema
         /// </summary>
-        public string Schema { get { return _schema; } set { _schema = value; } }
+        public string Schema
+        {
+            get { return _schema; }
+            set { _schema = value; }
+        }
+
         /// <summary>
         /// 是否共享连接线程
         /// </summary>
@@ -182,7 +197,7 @@ namespace HiSql
         }
 
         /// <summary>
-        /// 是否开始日志
+        /// 是否开启Sql日志
         /// </summary>
         public bool IsLog
         {
@@ -191,16 +206,22 @@ namespace HiSql
         }
 
         /// <summary>
+        /// 是否开启表操作日志
+        /// </summary>
+        public bool IsLogTable { get; set; }
+
+        /// <summary>
         /// 从库，可以有多个 但必须与主库做高可用
         /// </summary>
         public List<SlaveConnectionConfig> SlaveConnectionConfigs { get; set; }
 
-
         /// <summary>
         /// 是否启用了主从库
         /// </summary>
-        public bool IsMasterSlave {
-            get {
+        public bool IsMasterSlave
+        {
+            get
+            {
                 if (SlaveConnectionConfigs != null)
                 {
                     if (SlaveConnectionConfigs.Where(s => s.Weight > 0).Count() > 0)
@@ -212,7 +233,6 @@ namespace HiSql
                 return false;
             }
         }
-
 
         /// <summary>
         /// 当前是否是从库
@@ -226,30 +246,40 @@ namespace HiSql
         /// <summary>
         /// 仅在此列的表走从库
         /// </summary>
-        public List<string> SlaveOnly { get => _slaveonly; set => _slaveonly = value; }
+        public List<string> SlaveOnly
+        {
+            get => _slaveonly;
+            set => _slaveonly = value;
+        }
 
         /// <summary>
         /// 不在此列折表走从库
         /// </summary>
 
-        public List<string> SlaveExclude { get => _slaveexclude; set => _slaveexclude = value; }
+        public List<string> SlaveExclude
+        {
+            get => _slaveexclude;
+            set => _slaveexclude = value;
+        }
 
         /// <summary>
         /// 是否自动关闭链接
         /// </summary>
-        public bool IsAutoClose { get { return isAutoClose; } set { isAutoClose = value; } }
+        public bool IsAutoClose
+        {
+            get { return isAutoClose; }
+            set { isAutoClose = value; }
+        }
 
         /// <summary>
         /// 是否调试模式 如果是调试模式则自动开启SQL监测
         /// </summary>
         public bool Deugger { get; set; }
 
-
         /// <summary>
         /// 注册AOP事件
         /// </summary>
         public AopEvent AppEvents { get; set; }
-
 
         /// <summary>
         /// 用于记录操作记录的当前用户名称(可自定义,默认是Hone)
@@ -258,7 +288,6 @@ namespace HiSql
         {
             get { return _user; }
             set { _user = value; }
-            
         }
     }
 }

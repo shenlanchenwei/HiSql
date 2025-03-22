@@ -71,6 +71,10 @@ namespace HiSql
         /// 是否开启SQL 日志
         /// </summary>
         public virtual bool IsSqlLog { get; set; }
+
+
+
+
         /// <summary>
         /// 数据库连接
         /// </summary>

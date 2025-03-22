@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using HiSql.Interface.TabLog;
 using HiSql.TabLog.Interface;
 using HiSql.TabLog.Model;
 using HiSql.TabLog.Module;
-using HiSql.TabLog.Queue;
 using HiSql.TabLog.Service;
 using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json.Linq;
@@ -14,32 +14,31 @@ namespace HiSql.TabLog.Ext
 {
     public static class InstallTableLog
     {
-        public static Func<IServiceScope, string, HiSqlClient> GetSqlClientByName { get; set; }
+        public static Func<string, HiSqlClient> GetSqlClientByName { get; set; }
 
-        public static Func<IServiceScope> FuncGetScope { get; set; }
-
-        public static IServiceCollection AddTabLogServer(this IServiceCollection services)
+        public static IServiceCollection AddTabLogServer(
+            this IServiceCollection services,
+            Func<string, HiSqlClient> getSqlClientByName
+        )
         {
-            //注册日志队列
-            services.AddSingleton<HiSqlTabLogQueue>();
-
+            GetSqlClientByName = getSqlClientByName;
             //注册日志处理模块
-            services.AddSingleton<HiSqlCredentialModule>();
-
+            services.AddSingleton<ICredentialModule, HiSqlCredentialModule>();
             //注册后台日志保存服务
             services.AddHostedService<BackgroundTabLogService>();
-
+            SnroNumber.ConnectionString = getSqlClientByName(
+                ""
+            ).CurrentConnectionConfig.ConnectionString;
+            Global.SnroOn = true;
             return services;
         }
 
         public static Task SetupTable(
             HiSqlClient sqlClient,
-            Func<IServiceScope, string, HiSqlClient> _getSqlClientByName,
-            Func<IServiceScope> _funcGetScope
+            Func<string, HiSqlClient> _getSqlClientByName
         )
         {
             GetSqlClientByName = _getSqlClientByName;
-            FuncGetScope = _funcGetScope;
             List<Type> _tabTypes = new List<Type> { typeof(ILogTable) };
             var _listType = AppDomain
                 .CurrentDomain.GetAssemblies()
@@ -82,11 +81,7 @@ namespace HiSql.TabLog.Ext
         /// </summary>
         /// <param name="sqlClient"></param>
         /// <returns></returns>
-        public static void InitTabeLog(
-            IServiceScope scope,
-            HiSqlClient sqlClient,
-            Hi_TabManager logTable
-        )
+        public static void InitTableLog(HiSqlClient sqlClient, Hi_TabManager logTable)
         {
             //读取Hi_TabManager,并初始化日志表
             var tableName = typeof(Hi_TabManager).Name;
@@ -107,24 +102,26 @@ namespace HiSql.TabLog.Ext
                 }
                 var templateTableStruct = sqlClient.DbFirst.GetTabStruct(templateTableName);
                 var jsonColumns = JArray.FromObject(templateTableStruct.Columns);
-                var createTableClient = GetSqlClientByName(scope, logTable.DbServer);
-                //检查表是否存在
-                var _isExits = createTableClient.DbFirst.CheckTabExists(checkTableName);
-                if (!_isExits)
+                using (var createTableSqlClient = GetSqlClientByName(logTable.DbServer))
                 {
-                    var columns = jsonColumns.ToObject<List<HiColumn>>();
-                    var tableStruct = new TabInfo
+                    //检查表是否存在
+                    var _isExits = createTableSqlClient.DbFirst.CheckTabExists(checkTableName);
+                    if (!_isExits)
                     {
-                        TabModel = new HiTable { TabName = checkTableName },
-                        Columns = columns
-                    };
-                    if (!createTableClient.DbFirst.CreateTable(tableStruct))
-                        Console.WriteLine($"\t\t创建表[{checkTableName}]失败...");
+                        var columns = jsonColumns.ToObject<List<HiColumn>>();
+                        var tableStruct = new TabInfo
+                        {
+                            TabModel = new HiTable { TabName = checkTableName },
+                            Columns = columns
+                        };
+                        if (!createTableSqlClient.DbFirst.CreateTable(tableStruct))
+                            Console.WriteLine($"\t\t创建表[{checkTableName}]失败...");
+                        else
+                            Console.WriteLine($"\t\t创建表[{checkTableName}]成功...");
+                    }
                     else
-                        Console.WriteLine($"\t\t创建表[{checkTableName}]成功...");
+                        Console.WriteLine($"\t\t表[{checkTableName}]已经存在");
                 }
-                else
-                    Console.WriteLine($"\t\t表[{checkTableName}]已经存在");
             }
 
             //获取配置信息

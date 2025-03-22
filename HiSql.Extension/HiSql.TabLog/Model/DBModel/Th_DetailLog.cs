@@ -46,7 +46,7 @@ namespace HiSql.TabLog.Model
         /// </summary>
         [HiColumn(
             FieldDesc = "D|C|M",
-            IsPrimary = false,
+            IsPrimary = true,
             IsBllKey = false,
             IsNull = false,
             FieldType = HiType.VARCHAR,

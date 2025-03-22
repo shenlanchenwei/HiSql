@@ -1,31 +1,31 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using HiSql.Common.Entities.TabLog;
+using HiSql.Interface.TabLog;
 
 namespace HiSql.TabLog.Interface
 {
-    public abstract class ITabLogQueue<T, T2, TState>
-        where T : ICredential<T2, TState>
-        where T2 : IOperationLog
+    public static class TabLogQueue
     {
-        private ConcurrentQueue<T> logsQueue = new ConcurrentQueue<T>();
+        private static ConcurrentQueue<Credential> logsQueue = new ConcurrentQueue<Credential>();
 
-        public void EnqueueLog(T log)
+        public static void EnqueueLog(Credential credential)
         {
-            logsQueue.Enqueue(log);
+            logsQueue.Enqueue(credential);
         }
 
         /// <summary>
         /// 批量处理日志
         /// </summary>
         /// <returns></returns>
-        public List<T> DequeueLog()
+        public static List<Credential> DequeueLog()
         {
             // 批量处理日志,如果日志数量大于100先批量取100条,没有100条就取所有
 
             if (logsQueue.Count < 1)
-                return new List<T>(0);
+                return new List<Credential>(0);
 
-            var logs = new List<T>();
+            var logs = new List<Credential>();
             while (logsQueue.TryDequeue(out var log))
             {
                 logs.Add(log);

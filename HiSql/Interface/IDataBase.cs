@@ -34,6 +34,7 @@ namespace HiSql
         bool IsLogSql { get; set; }
 
 
+
         #region  执行前,后,超时 等监控
 
         /// <summary>
@@ -119,7 +120,7 @@ namespace HiSql
         /// <param name="tabInfo"></param>
         /// <param name="columnMapping"></param>
         /// <returns></returns>
-        int ExecBulkCopyCommand(DataTable sourceTable, TabInfo tabInfo,Dictionary<string,string> columnMapping=null);
+        int ExecBulkCopyCommand(DataTable sourceTable, TabInfo tabInfo, Dictionary<string, string> columnMapping = null);
 
 
         /// <summary>
@@ -159,7 +160,7 @@ namespace HiSql
 
 
         /// <summary>
-        /// 执行Sql语句 并返回受影响的行 
+        /// 执行Sql语句 并返回受影响的行
         /// </summary>
         /// <param name="sql"></param>
         /// <param name="parameters"></param>
@@ -167,7 +168,7 @@ namespace HiSql
         int ExecCommand(string sql, params HiParameter[] parameters);
 
         /// <summary>
-        /// 执行Sql语句 并返回受影响的行 
+        /// 执行Sql语句 并返回受影响的行
         /// </summary>
         /// <param name="sql"></param>
         /// <param name="parameters"></param>
@@ -179,7 +180,7 @@ namespace HiSql
         /// </summary>
         /// <param name="sql"></param>
         /// <returns>
-        /// 
+        ///
         /// </returns>
         object ExecScalar(string sql);
 
@@ -189,7 +190,7 @@ namespace HiSql
         /// </summary>
         /// <param name="sql"></param>
         /// <returns>
-        /// 
+        ///
         /// </returns>
         Task<object> ExecScalarAsync(string sql);
 
