@@ -77,11 +77,10 @@ namespace HiSql.Interface.TabLog
         /// <param name="state"></param>
         /// <param name="operateUserName"></param>
         /// <returns></returns>
-        public abstract Task<Credential> RollbackCredential(
-            string credentialId,
-            HiSqlClient rollbackSqlClient,
-            object state,
-            string operateUserName
+        public abstract Task RollbackCredential(
+            HiSqlClient sqlClient,
+            string tableName,
+            string credentialId
         );
 
         /// <summary>
@@ -94,8 +93,8 @@ namespace HiSql.Interface.TabLog
         /// <returns></returns>
         public abstract Task<List<OperationLog>> ApplyDataOperate(
             HiSqlClient mainClient,
-            List<IDictionary<string, object>> modifyRows,
-            List<IDictionary<string, string>> delRows,
+            List<Dictionary<string, object>> modifyRows,
+            List<Dictionary<string, string>> delRows,
             string tableName,
             List<OperationType> operationTypes
         );
@@ -104,8 +103,9 @@ namespace HiSql.Interface.TabLog
             HiSqlProvider sqlProvider,
             string tableName,
             List<Dictionary<string, object>> data,
+            List<Dictionary<string, string>> delete,
             Func<Task<bool>> func,
-           List<OperationType> operationTypes
+            List<OperationType> operationTypes
         );
     }
 }

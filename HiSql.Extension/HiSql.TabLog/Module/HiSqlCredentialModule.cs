@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Dynamic;
@@ -24,116 +25,7 @@ namespace HiSql.TabLog.Module
             return Task.FromResult(credential);
         }
 
-        /// <summary>
-        /// 回滚操作
-        /// </summary>
-        /// <param name="credentialId"></param>
-        /// <param name="rollbackClient"></param>
-        /// <param name="state"></param>
-        /// <param name="operateUserName"></param>
-        /// <returns></returns>
-        public override async Task<Credential> RollbackCredential(
-            string credentialId,
-            HiSqlClient rollbackClient,
-            object state,
-            string operateUserName
-        )
-        {
-            var mangerObj = (Hi_TabManager)state;
-            List<Th_DetailLog> operateList;
-            //回滚操作
-            using (var logClient = InstallTableLog.GetSqlClientByName(mangerObj.DbServer))
-            {
-                var operateCredential = logClient
-                    .Query(mangerObj.MainTabLog)
-                    .Field("*")
-                    .Where(
-                        new Filter
-                        {
-                            { "LogId", OperType.EQ, credentialId },
-                            { "TabName", OperType.EQ, mangerObj.TabName }
-                        }
-                    )
-                    .ToList<Th_MainLog>()
-                    .FirstOrDefault();
-                if (operateCredential == null)
-                    throw new Exception("该凭证不存在!");
-                if (operateCredential.IsRecover == 1)
-                    throw new Exception("该凭证已被回滚!");
 
-                operateList = logClient
-                    .Query(mangerObj.DetailTabLog)
-                    .Field("*")
-                    .Where(
-                        new Filter
-                        {
-                            { "LogId", OperType.EQ, credentialId },
-                            { "TabName", OperType.EQ, mangerObj.TabName }
-                        }
-                    )
-                    .ToList<Th_DetailLog>();
-
-                var modifyRows = new List<IDictionary<string, object>>();
-                var delRows = new List<IDictionary<string, string>>();
-                List<OperationType> operationTypes = new List<OperationType>();
-                foreach (var item in operateList)
-                {
-                    switch (item.ActionModel)
-                    {
-                        case "C":
-                            var tempDelRows = JsonConvert.DeserializeObject<
-                                List<IDictionary<string, string>>
-                            >(item.NewVal);
-                            delRows.AddRange(tempDelRows);
-                            break;
-                        case "M":
-                            var tempModifyRows = JsonConvert.DeserializeObject<
-                                List<IDictionary<string, object>>
-                            >(item.OldVal);
-                            modifyRows.AddRange(tempModifyRows);
-                            break;
-                        case "D":
-                            var tempCreateRows = JsonConvert.DeserializeObject<
-                                List<IDictionary<string, object>>
-                            >(item.OldVal);
-                            modifyRows.AddRange(tempCreateRows);
-                            break;
-                        default:
-                            throw new Exception("不支持的操作类型:" + item.ActionModel);
-                    }
-                }
-
-                var logs = await ApplyDataOperate(
-                    rollbackClient,
-                    modifyRows,
-                    delRows,
-                    mangerObj.TabName,
-                    operationTypes
-                );
-                var upCount = await logClient
-                    .Update(mangerObj.MainTabLog)
-                    .Set(new { IsRecover = 1 })
-                    .Where(
-                        new Filter
-                        {
-                            { "LogId", OperType.EQ, credentialId },
-                            { "TabName", OperType.EQ, mangerObj.TabName },
-                            { "IsRecover", OperType.EQ, 0 }
-                        }
-                    )
-                    .ExecCommandAsync();
-                if (upCount < 1)
-                    throw new Exception("该凭证已被回滚,或凭证不存在!");
-
-                var newCredential = await SaveCredential(
-                    logs,
-                    mangerObj,
-                    operateUserName,
-                    credentialId
-                );
-                return newCredential;
-            }
-        }
 
         /// <summary>
         /// 应用数据操作
@@ -144,8 +36,8 @@ namespace HiSql.TabLog.Module
         /// <returns></returns>
         public override async Task<List<OperationLog>> ApplyDataOperate(
             HiSqlClient mainClient,
-            List<IDictionary<string, object>> modifyRows,
-            List<IDictionary<string, string>> delRows,
+            List<Dictionary<string, object>> modifyRows,
+            List<Dictionary<string, string>> delRows,
             string tableName,
             List<OperationType> operationTypes
         )
@@ -168,11 +60,7 @@ namespace HiSql.TabLog.Module
                 primaryList.Add(column);
             }
 
-            var tempTableInfo = new TabInfo
-            {
-                Columns = primaryList,
-                TabModel = new HiTable { TabName = tempTableName }
-            };
+
 
             var delLog = new OperationLog
             {
@@ -198,10 +86,7 @@ namespace HiSql.TabLog.Module
             // 如果operationTypes里包含删除和更新操作则需要创建临时表
             if (operationTypes.Contains(OperationType.Update) || operationTypes.Contains(OperationType.Delete))
             {
-                //创建临时表
-                var createResult = mainClient.DbFirst.CreateTable(tempTableInfo);
                 var tempTableDataList = new List<IDictionary<string, object>>();
-
                 foreach (var row in modifyRows)
                 {
                     var tempRow = new Dictionary<string, object>();
@@ -216,34 +101,78 @@ namespace HiSql.TabLog.Module
                         tempRow[primary.FieldName] = row[primary.FieldName];
                     tempTableDataList.Add(tempRow);
                 }
-                //将新增行和修改行插入临时表
-                var insertResult = mainClient.Insert(tempTableName, tempTableDataList).ExecCommand();
-
-                //查询出新增行和修改行
-                //var queryR = mainClient.Query(tempTableName).As("t1").Field("*").ToTable();
-
-                var fields = new List<string>();
-                foreach (var field in tableInfo.Columns)
-                    fields.Add("t2." + field.FieldName);
-
-                var query = mainClient
-                    .Query(tempTableName)
-                    .As("t1")
-                    .Field(fields.ToArray())
-                    .Join(tableName, JoinType.Left)
-                    .As("t2");
-                //string joinStr = "";
-                //循环主键列生成连接条件
-                var obj = new JoinOn();
-                foreach (var primary in primaryList)
-                    obj.Add("t1." + primary.FieldName, "t2." + primary.FieldName);
-
-                query = query.On(obj);
-                var updateOldList = query.ToEObject();
-                //删除临时表
-                mainClient.DbFirst.DropTable(tempTableName);
                 var oldDataMap = new Dictionary<string, IDictionary<string, object>>();
+                List<ExpandoObject> updateOldList;
+                if (tempTableDataList.Count == 1 || primaryList.Count == 1)
+                {
+                    //条件只有一条或者主键只有一列都不创建临时表
+                    Filter oldDataFilter;
+                    if (primaryJsonList.Count == 1)
+                    {
+                        var pkFieldName = primaryList[0].FieldName;
+                        var whereValues = tempTableDataList.Select(r => r[pkFieldName]).ToList();
+                        oldDataFilter = new Filter()
+                        {
+                            {
+                                pkFieldName
+                                , OperType.IN,
+                                whereValues
+                            }
+                        };
+                    }
+                    else
+                    {
+                        oldDataFilter = new Filter();
+                        var onlyData = tempTableDataList[0];
+                        foreach (var fieldName in onlyData.Keys)
+                        {
+                            oldDataFilter.Add(fieldName, OperType.EQ, onlyData[fieldName]);
+                        }
+                    }
+                    //计时
+                    var watch = Stopwatch.StartNew();
+                    updateOldList = await mainClient.Query(tableName).Field("*").Where(oldDataFilter).ToEObjectAsync();
+                    watch.Stop();
+                    Console.WriteLine($"记录老数据查询耗时：{watch.ElapsedMilliseconds}ms");
+                }
+                else
+                {
+                    var tempTableInfo = new TabInfo
+                    {
+                        Columns = primaryList,
+                        TabModel = new HiTable { TabName = tempTableName }
+                    };
+                    //创建临时表
+                    var createResult = mainClient.DbFirst.CreateTable(tempTableInfo);
+                    //将新增行和修改行插入临时表
+                    var insertResult = mainClient.Insert(tempTableName, tempTableDataList).ExecCommand();
+
+                    //查询出新增行和修改行
+                    //var queryR = mainClient.Query(tempTableName).As("t1").Field("*").ToTable();
+
+                    var fields = new List<string>();
+                    foreach (var field in tableInfo.Columns)
+                        fields.Add("t2." + field.FieldName);
+
+                    var query = mainClient
+                        .Query(tempTableName)
+                        .As("t1")
+                        .Field(fields.ToArray())
+                        .Join(tableName, JoinType.Left)
+                        .As("t2");
+                    //string joinStr = "";
+                    //循环主键列生成连接条件
+                    var obj = new JoinOn();
+                    foreach (var primary in primaryList)
+                        obj.Add("t1." + primary.FieldName, "t2." + primary.FieldName);
+
+                    query = query.On(obj);
+                    updateOldList = query.ToEObject();
+                    //删除临时表
+                    mainClient.DbFirst.DropTable(tempTableName);
+                }
                 if (updateOldList.Count > 0)
+                {
                     foreach (var item in updateOldList)
                     {
                         var row = item as IDictionary<string, object>;
@@ -261,6 +190,7 @@ namespace HiSql.TabLog.Module
                             break;
                         oldDataMap[key] = row;
                     }
+                }
 
                 foreach (var row in delRows)
                 {
@@ -323,17 +253,22 @@ namespace HiSql.TabLog.Module
             var tableLogSetting = CacheContext.Cache.GetCache<Hi_TabManager>(cacheKey);
             if (tableLogSetting != null)
                 return tableLogSetting;
+            if (!client.DbFirst.CheckTabExists("Hi_TabManager"))
+            {
+                client.DbFirst.CreateTable(typeof(Hi_TabManager));
+                return null;
+            }
             var managerTabName = typeof(Hi_TabManager).Name;
             var settingList = client
                 .Query(managerTabName)
                 .Field("*")
                 .Where(new Filter { { "TabName", OperType.EQ, tableName } })
                 .ToList<Hi_TabManager>();
-            if (settingList == null || settingList.Count < 1)
+            if (settingList == null || settingList.Count == 0)
                 return null;
             var setting = settingList.First();
             //初始化自增
-            InstallTableLog.InitTableLog(client, setting);
+            InstallTableLog.InitTableLog(setting);
             if (setting != null)
                 CacheContext.Cache.SetCache(cacheKey, setting);
             return setting;
@@ -405,10 +340,17 @@ namespace HiSql.TabLog.Module
         public override async Task RecordLog(
             HiSqlProvider sqlProvider,
             string tableName,
-            List<Dictionary<string, object>> data,
+            List<Dictionary<string, object>> modiData,
+            List<Dictionary<string, string>> delete,
             Func<Task<bool>> func, List<OperationType> operationTypes
         )
         {
+
+            if (modiData.Count == 0&&delete.Count==0)
+            {
+                await func();
+                return;
+            }
             Stopwatch watch;
             using (var sqlClient = sqlProvider.CloneClient())
             {
@@ -418,15 +360,16 @@ namespace HiSql.TabLog.Module
                         //获取表日志设置耗时
                         watch = Stopwatch.StartNew();
                         var state = GetTableLogSetting(tableName, sqlClient);
+                        if (state == null)
+                            throw new Exception($"表{tableName}未设置日志设置");
                         watch.Stop();
                         Console.WriteLine($"获取表日志设置耗时：{watch.ElapsedMilliseconds}ms");
-                        var addData = data.Select(r => (IDictionary<string, object>)r).ToList();
                         //应用数据操作耗时
                         watch = Stopwatch.StartNew();
                         var operateLogs = await ApplyDataOperate(
                             sqlClient,
-                            addData,
-                            new List<IDictionary<string, string>>(0),
+                            modiData,
+                            delete,
                             tableName,
                             operationTypes
                         );
@@ -445,6 +388,96 @@ namespace HiSql.TabLog.Module
             Console.WriteLine($"执行原方法耗时：{watch.ElapsedMilliseconds}ms");
         }
 
+        public override async Task RollbackCredential(HiSqlClient sqlClient, string tableName, string credentialId)
+        {
+            var mangerObj = GetTableLogSetting(tableName, sqlClient);
+            List<Hi_DetailLog> operateList;
+            //回滚操作
+            using (var logClient = InstallTableLog.GetSqlClientByName(mangerObj.DbServer))
+            {
+                var operateCredential = logClient
+                    .Query(mangerObj.MainTabLog)
+                    .Field("*")
+                    .Where(
+                        new Filter
+                        {
+                            { "LogId", OperType.EQ, credentialId },
+                            { "TabName", OperType.EQ, mangerObj.TabName }
+                        }
+                    )
+                    .ToList<Hi_MainLog>()
+                    .FirstOrDefault();
+                if (operateCredential == null)
+                    throw new Exception("该凭证不存在!");
+                if (operateCredential.IsRecover == 1)
+                    throw new Exception("该凭证已被回滚!");
 
+                operateList = logClient
+                    .Query(operateCredential.DetailTabLog)
+                    .Field("*")
+                    .Where(
+                        new Filter
+                        {
+                            { "LogId", OperType.EQ, credentialId },
+                            { "TabName", OperType.EQ, mangerObj.TabName }
+                        }
+                    )
+                    .ToList<Hi_DetailLog>();
+
+                var modifyRows = new List<IDictionary<string, object>>();
+                var delRows = new List<IDictionary<string, string>>();
+                List<OperationType> operationTypes = new List<OperationType>();
+                foreach (var item in operateList)
+                {
+                    switch (item.ActionModel)
+                    {
+                        case "C":
+                            var tempDelRows = JsonConvert.DeserializeObject<
+                                List<IDictionary<string, string>>
+                            >(item.NewVal);
+                            delRows.AddRange(tempDelRows);
+                            break;
+                        case "M":
+                            var tempModifyRows = JsonConvert.DeserializeObject<
+                                List<IDictionary<string, object>>
+                            >(item.OldVal);
+                            modifyRows.AddRange(tempModifyRows);
+                            break;
+                        case "D":
+                            var tempCreateRows = JsonConvert.DeserializeObject<
+                                List<IDictionary<string, object>>
+                            >(item.OldVal);
+                            modifyRows.AddRange(tempCreateRows);
+                            break;
+                        default:
+                            throw new Exception("不支持的操作类型:" + item.ActionModel);
+                    }
+                }
+                sqlClient.BeginTran();
+                if (modifyRows.Count > 0)
+                {
+                    await sqlClient.Modi(tableName, modifyRows).ExecCommandAsync();
+                }
+                if (delRows.Count > 0)
+                {
+                    await sqlClient.Delete(tableName, delRows).ExecCommandAsync();
+                }
+                var upCount = await logClient
+                    .Update(mangerObj.MainTabLog)
+                    .Set(new { IsRecover = 1 })
+                    .Where(
+                        new Filter
+                        {
+                            { "LogId", OperType.EQ, credentialId },
+                            { "TabName", OperType.EQ, mangerObj.TabName },
+                            { "IsRecover", OperType.EQ, 0 }
+                        }
+                    )
+                    .ExecCommandAsync();
+                sqlClient.CommitTran();
+                if (upCount < 1)
+                    throw new Exception("该凭证已被回滚,或凭证不存在!");
+            }
+        }
     }
 }

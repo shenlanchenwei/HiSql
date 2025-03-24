@@ -64,16 +64,11 @@ namespace HiSql
         public async Task<int> ExecCommandAsync()
         {
             var insertResult = 0;
-            await this.Context.RecordLog(
-                this.Table.TabName,
-                this.operateData,
-                async () =>
+            await this.RecordLog(async () =>
                 {
                     insertResult = await this.ExecCommandCore();
                     return insertResult > 0;
-                },
-                new List<OperationType> { OperationType.Insert }
-            );
+                });
             return insertResult;
         }
 
@@ -179,10 +174,6 @@ namespace HiSql
             }
         }
 
-
-
-
-        List<Dictionary<string, object>> operateData;
 
         void checkData()
         {
@@ -815,6 +806,17 @@ namespace HiSql
 
             return this;
         }
+
+
+        /// <summary>
+        /// 是否是Modi操作
+        /// </summary>
+        /// <returns></returns>
+        public bool IsModi()
+        {
+            return _queue.HasQueue("modi");
+        }
+
 
         /// <summary>
         /// 有数据则更新无数据则插入

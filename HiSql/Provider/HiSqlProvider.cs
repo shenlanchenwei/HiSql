@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using HiSql.Common.Entities.TabLog;
 using HiSql.Interface.TabLog;
 using Newtonsoft.Json.Linq;
 
@@ -1276,6 +1277,8 @@ namespace HiSql
         {
             this.Context.BeginTran(iso);
         }
+
+
 
         #endregion
     }

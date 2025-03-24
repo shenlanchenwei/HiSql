@@ -3,8 +3,8 @@ using HiSql.TabLog.Interface;
 namespace HiSql.TabLog.Model
 {
     [System.Serializable]
-    [HiTable(IsEdit = true, TabName = "Th_DetailLog")]
-    public class Th_DetailLog : StandField, ILogTable
+    [HiTable(IsEdit = true, TabName = "Hi_DetailLog")]
+    public class Hi_DetailLog : StandField, ILogTable
     {
         /// <summary>
         /// 日志编号

@@ -78,7 +78,7 @@ namespace HiSql.TabLog.Service
                     Console.WriteLine("HiSql操作日志存储异常");
                     Console.WriteLine(ex);
                 }
-                await Task.Delay(1000, stoppingToken); // 每隔 1 秒检查一次队列
+                await Task.Delay(1, stoppingToken); // 每隔1毫秒检查一次队列
             }
         }
 
@@ -99,50 +99,55 @@ namespace HiSql.TabLog.Service
                 {
                     //按表分组
                     var groupByTable = group.GroupBy(r => r.tableLogConfig.TabName);
-                    var mainLogs = new Dictionary<string, List<Th_MainLog>>();
-                    var detailLogs = new Dictionary<string, List<Th_DetailLog>>();
+                    var mainLogs = new Dictionary<string, List<Hi_MainLog>>();
+                    var detailLogs = new Dictionary<string, List<Hi_DetailLog>>();
                     foreach (var credential in group)
                     {
                         var result = BuildCredentialLogs(credential.Credential);
                         var mainLogTableName = credential.tableLogConfig.MainTabLog;
                         var detailLogTableName = credential.tableLogConfig.DetailTabLog;
+                        if (credential.tableLogConfig.IsSplitLog == 1)
+                            detailLogTableName = detailLogTableName + DateTime.Now.ToString(credential.tableLogConfig.SplitFormat);
+                        
                         if (result != null)
                         {
                             var mainLog = result.Item1;
+                            mainLog.DetailTabLog = detailLogTableName;
                             var detailLog = result.Item2;
                             if (!mainLogs.ContainsKey(mainLogTableName))
-                                mainLogs[mainLogTableName] = new List<Th_MainLog>() { mainLog };
+                                mainLogs[mainLogTableName] = new List<Hi_MainLog>() { mainLog };
                             else
                                 mainLogs[mainLogTableName].Add(mainLog);
 
                             if (!detailLogs.ContainsKey(detailLogTableName))
-                                detailLogs[detailLogTableName] = new List<Th_DetailLog>(detailLog);
+                                detailLogs[detailLogTableName] = new List<Hi_DetailLog>(detailLog);
                             else
                                 detailLogs[detailLogTableName].AddRange(detailLog);
                         }
                     }
 
                     //按数据库连接,按表分组插入日志
-                    using (var client = InstallTableLog.GetSqlClientByName(group.Key))
+                    using (var hisqlClient = InstallTableLog.GetSqlClientByName(group.Key))
                     {
-                        client.BeginTran();
+                        hisqlClient.BeginTran();
                         foreach (var tableGroup in mainLogs)
-                            await client
-                                .Insert(tableGroup.Key, tableGroup.Value)
-                                .ExecCommandAsync();
-
+                        {
+                            InstallTableLog.CreateTableByTemplate<Hi_MainLog>(hisqlClient, tableGroup.Key);
+                            await hisqlClient.Insert(tableGroup.Key, tableGroup.Value).ExecCommandAsync();
+                        }
                         foreach (var tableGroup in detailLogs)
-                            await client
-                                .Insert(tableGroup.Key, tableGroup.Value)
-                                .ExecCommandAsync();
-
-                        client.CommitTran();
+                        {
+                            //看表是否存在，不存在就创建
+                            InstallTableLog.CreateTableByTemplate<Hi_DetailLog>(hisqlClient, tableGroup.Key);
+                            await hisqlClient.Insert(tableGroup.Key, tableGroup.Value).ExecCommandAsync();
+                        }
+                        hisqlClient.CommitTran();
                     }
                 }
             }
         }
 
-        public Tuple<Th_MainLog, List<Th_DetailLog>> BuildCredentialLogs(Credential credential)
+        public Tuple<Hi_MainLog, List<Hi_DetailLog>> BuildCredentialLogs(Credential credential)
         {
             var settingObj = (Hi_TabManager)credential.State;
             var credentialId = SnroNumber.NewNumber(settingObj.SNRO, settingObj.SNUM);
@@ -173,7 +178,7 @@ namespace HiSql.TabLog.Service
             }
 
             var tableName = settingObj.TabName;
-            var mainLog = new Th_MainLog
+            var mainLog = new Hi_MainLog
             {
                 LogId = credential.CredentialId,
                 TabName = tableName,
@@ -188,11 +193,11 @@ namespace HiSql.TabLog.Service
                 IsRecover = 0,
                 LogModel = 1
             };
-            var dbLogs = new List<Th_DetailLog>();
+            var dbLogs = new List<Hi_DetailLog>();
             //如果有新增、修改、删除操作，则记录日志
             if (mainLog.CCount > 0)
             {
-                var insertLog = new Th_DetailLog
+                var insertLog = new Hi_DetailLog
                 {
                     LogId = credential.CredentialId,
                     TabName = tableName,
@@ -208,7 +213,7 @@ namespace HiSql.TabLog.Service
 
             if (mainLog.MCount > 0)
             {
-                var updateLog = new Th_DetailLog
+                var updateLog = new Hi_DetailLog
                 {
                     LogId = credential.CredentialId,
                     TabName = tableName,
@@ -224,7 +229,7 @@ namespace HiSql.TabLog.Service
             }
             if (mainLog.DCount > 0)
             {
-                var deleteLog = new Th_DetailLog
+                var deleteLog = new Hi_DetailLog
                 {
                     LogId = credential.CredentialId,
                     TabName = tableName,
@@ -239,7 +244,10 @@ namespace HiSql.TabLog.Service
             }
             if (dbLogs.Count == 0)
                 return null;
-            return new Tuple<Th_MainLog, List<Th_DetailLog>>(mainLog, dbLogs);
+            return new Tuple<Hi_MainLog, List<Hi_DetailLog>>(mainLog, dbLogs);
         }
+
+
+
     }
 }

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Data;
 using System.Diagnostics;
@@ -1078,9 +1079,18 @@ namespace HiSql
         static string[] tableLogSysTables = new string[]
         {
             "Hi_TabManager",
-            "Th_DetailLog",
-            "Th_MainLog"
+            "Hi_DetailLog",
+            "Hi_MainLog",
+            "#",
+            "@"
         };
+
+        private static bool IgnoreLogTable(string tableName)
+        {
+            return tableName.StartsWith("Hi")
+                  || tableName.StartsWith("#") //临时表
+                  || tableName.StartsWith("@"); //变量表
+        }
 
         /// <summary>
         /// 记录操作日志
@@ -1091,37 +1101,148 @@ namespace HiSql
         /// <param name="func"></param>
         /// <returns></returns>
         public static async Task RecordLog(
-            this HiSqlProvider sqlProvider,
-            string tableName,
-            List<Dictionary<string, object>> operateDataList,
-            Func<Task<bool>> func,
-            List<OperationType> operationTypes
+            this InsertProvider insertProvider,
+            Func<Task<bool>> func
         )
         {
-            if (
-                Constants.HiSysTable.ContainsKey(tableName)
-                || tableLogSysTables.Contains(tableName)
-                || tableName.StartsWith("#") //临时表
-            )
+            var tableName = insertProvider.Table.TabName;
+            if (IgnoreLogTable(tableName))
+            {
+                await func();
+                return;
+            }
+            var sqlProvider = insertProvider.Context;
+            var tabinfo = sqlProvider.DMInitalize.GetTabStruct(tableName);
+            if (tabinfo.TabModel.IsLog)
+            {
+                var operateTypes = new List<OperationType> { OperationType.Insert };
+                if (insertProvider.IsModi())
+                    operateTypes.Add(OperationType.Update);
+                var credentialModule = sqlProvider.GetCredentialModule();
+                //记录精确操作时间
+                var watch = Stopwatch.StartNew();
+                var operateDataList = HiSql.Utils.ListObjectConverter.ConvertToListOfDictionary(insertProvider.Data);
+                await credentialModule.RecordLog(sqlProvider, tableName, operateDataList, new List<Dictionary<string, string>>(0), func, operateTypes);
+                watch.Stop();
+                Console.WriteLine($"记录RecordLog日志耗时：{watch.ElapsedMilliseconds}ms");
+                return;
+            }
+            await func();
+        }
+
+
+        /// <summary>
+        /// 记录更新日志
+        /// </summary>
+        /// <param name="sqlProvider"></param>
+        /// <param name="tabName"></param>
+        /// <param name="where"></param>
+        /// <param name="value"></param>
+        /// <param name="operationTypes"></param>
+        /// <returns></returns>
+        /// <exception cref="NotImplementedException"></exception>
+
+        public static async Task RecordLog(this UpdateProvider updateProvider, Func<Task<bool>> func, List<OperationType> operationTypes)
+        {
+            var sqlProvider = updateProvider.Context;
+            var tableName = updateProvider.Table.TabName;
+            if (IgnoreLogTable(tableName))
             {
                 await func();
                 return;
             }
             var tabinfo = sqlProvider.DMInitalize.GetTabStruct(tableName);
-
             if (tabinfo.TabModel.IsLog)
             {
+                List<Dictionary<string, object>> operateDataList;
+                Filter where = null;
+                if (updateProvider.Wheres != null && updateProvider.Wheres.Count > 0)
+                    where = new Filter(updateProvider.Wheres);
+                else if (updateProvider.Filters != null && updateProvider.Filters.Elements.Count > 0)
+                    where = updateProvider.Filters;
+                if (where != null)
+                {
+                    using var sqlClient = sqlProvider.CloneClient();
+                    var queryFieldList = new string[] { "*" };
+                    var list = await sqlClient.Query(tableName).Field(queryFieldList).Where(where).ToEObjectAsync();
+                    operateDataList = HiSql.Utils.ListObjectConverter.ConvertToListOfDictionary(list);
+                }
+                else
+                    operateDataList = HiSql.Utils.ListObjectConverter.ConvertToListOfDictionary(updateProvider.Data);
                 var credentialModule = sqlProvider.GetCredentialModule();
                 //记录精确操作时间
                 var watch = Stopwatch.StartNew();
-                await credentialModule.RecordLog(sqlProvider, tableName, operateDataList, func, operationTypes);
+                await credentialModule.RecordLog(sqlProvider, tableName, operateDataList, new List<Dictionary<string, string>>(0), func, operationTypes);
                 watch.Stop();
                 Console.WriteLine($"记录RecordLog日志耗时：{watch.ElapsedMilliseconds}ms");
+                return;
             }
-            else
+            await func();
+        }
+
+
+        /// <summary>
+        /// 记录删除操作日志
+        /// </summary>
+        /// <param name="deleteProvider"></param>
+        /// <param name="func"></param>
+        /// <param name="operationTypes"></param>
+        /// <returns></returns>
+        public static async Task RecordLog(this DeleteProvider deleteProvider, Func<Task<bool>> func, List<OperationType> operationTypes)
+        {
+            var sqlProvider = deleteProvider.Context;
+            var tableName = deleteProvider.Table.TabName;
+            if (IgnoreLogTable(tableName))
             {
                 await func();
+                return;
             }
+            var tabinfo = sqlProvider.DMInitalize.GetTabStruct(tableName);
+            if (tabinfo.TabModel.IsLog)
+            {
+                List<Dictionary<string, string>> deleteList;
+                Filter where = null;
+                using var sqlClient = sqlProvider.CloneClient();
+                if (deleteProvider.Wheres != null && deleteProvider.Wheres.Count > 0)
+                    where = new Filter(deleteProvider.Wheres);
+                else if (deleteProvider.Filters != null && deleteProvider.Filters.Elements.Count > 0)
+                    where = deleteProvider.Filters;
+                if (where != null)
+                {
+                    var queryFieldList = new string[] { "*" };
+                    var list = await sqlClient.Query(tableName).Field(queryFieldList).Where(where).ToEObjectAsync();
+                   var dicList= HiSql.Utils.ListObjectConverter.ConvertToListOfDictionary(list);
+                    deleteList = HiSql.Utils.ListObjectConverter.ToDeleteWhere(dicList);
+                }
+                else
+                {
+                    var dicList = HiSql.Utils.ListObjectConverter.ConvertToListOfDictionary(deleteProvider.Data);
+                    deleteList = HiSql.Utils.ListObjectConverter.ToDeleteWhere(dicList);
+                }
+                var credentialModule = sqlProvider.GetCredentialModule();
+                //记录精确操作时间
+                var watch = Stopwatch.StartNew();
+                await credentialModule.RecordLog(sqlProvider, tableName, new List<Dictionary<string, object>>(0), deleteList,  func, operationTypes);
+                watch.Stop();
+                Console.WriteLine($"记录RecordLog日志耗时：{watch.ElapsedMilliseconds}ms");
+                return;
+            }
+            await func();
+
+        }
+
+
+        /// <summary>
+        /// 回滚操作记录
+        /// </summary>
+        /// <param name="sqlClient"></param>
+        /// <param name="tableName"></param>
+        /// <param name="credentialId"></param>
+        /// <returns></returns>
+        public static Task RollbackCredential(this HiSqlClient sqlClient, string tableName, string credentialId)
+        {
+            var credentialModule = sqlClient.Context.GetCredentialModule();
+            return credentialModule.RollbackCredential(sqlClient, tableName, credentialId);
         }
     }
 }
